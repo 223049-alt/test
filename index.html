@@ -1,0 +1,960 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ペイントバトル</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #222;
+            color: #fff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        #game-container {
+            position: relative;
+            width: 800px;
+            height: 600px;
+            box-shadow: 0 0 20px rgba(0,0,0,0.8);
+            background-color: #e0e0e0; /* 床の基本色 */
+        }
+
+        canvas {
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+
+        /* UI要素 */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; /* UIの裏のキャンバスをクリックできるようにする */
+        }
+
+        #score-bar {
+            position: absolute;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 400px;
+            height: 24px;
+            background-color: #555;
+            border-radius: 12px;
+            overflow: hidden;
+            display: flex;
+            border: 2px solid #fff;
+        }
+
+        #score-blue {
+            height: 100%;
+            background-color: #00e5ff;
+            width: 50%;
+            transition: width 0.2s;
+        }
+
+        #score-pink {
+            height: 100%;
+            background-color: #ff00e5;
+            width: 50%;
+            transition: width 0.2s;
+        }
+
+        #timer-box {
+            position: absolute;
+            top: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 32px;
+            font-weight: bold;
+            text-shadow: 2px 2px 0 #000, -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000;
+        }
+
+        #ink-tank-container {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            width: 40px;
+            height: 150px;
+            background-color: rgba(0, 0, 0, 0.5);
+            border: 2px solid #fff;
+            border-radius: 20px;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            padding: 4px;
+            box-sizing: border-box;
+        }
+
+        #ink-tank-level {
+            width: 100%;
+            height: 100%; /* 初期値 */
+            background-color: #00e5ff;
+            border-radius: 16px;
+            transition: height 0.1s;
+        }
+
+        #ink-warning {
+            position: absolute;
+            bottom: -25px;
+            right: -10px;
+            color: red;
+            font-weight: bold;
+            font-size: 14px;
+            display: none;
+            text-shadow: 1px 1px 0 #000;
+        }
+
+        /* 画面オーバーレイ (開始/終了) */
+        .overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            pointer-events: auto;
+            z-index: 10;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        h1 {
+            font-size: 48px;
+            margin-bottom: 10px;
+            color: #00e5ff;
+            text-shadow: 0 0 10px #00e5ff, 3px 3px 0 #ff00e5;
+            letter-spacing: 2px;
+        }
+
+        .controls-info {
+            background: rgba(255,255,255,0.1);
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            text-align: left;
+            line-height: 1.8;
+        }
+
+        button {
+            padding: 15px 40px;
+            font-size: 24px;
+            font-weight: bold;
+            color: #fff;
+            background-color: #ff00e5;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: transform 0.1s, background-color 0.2s;
+            box-shadow: 0 4px 0 #990089;
+        }
+
+        button:hover {
+            background-color: #ff4df0;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 0 #990089;
+        }
+
+        button:active {
+            transform: translateY(4px);
+            box-shadow: 0 0 0 #990089;
+        }
+
+        #result-text {
+            font-size: 36px;
+            font-weight: bold;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <!-- レンダリング用キャンバス群 -->
+    <canvas id="paint-canvas" width="800" height="600"></canvas>
+    <canvas id="main-canvas" width="800" height="600"></canvas>
+
+    <!-- UIレイヤー -->
+    <div id="ui-layer" class="hidden">
+        <div id="score-bar">
+            <div id="score-blue"></div>
+            <div id="score-pink"></div>
+        </div>
+        <div id="timer-box">60</div>
+        <div id="ink-tank-container">
+            <div id="ink-tank-level"></div>
+            <div id="ink-warning">インク不足!</div>
+        </div>
+    </div>
+
+    <!-- スタート画面 -->
+    <div id="start-screen" class="overlay">
+        <h1>ペイントバトル</h1>
+        <div class="controls-info">
+            🎮 <b>移動:</b> W A S D または 矢印キー<br>
+            🎯 <b>エイム＆射撃:</b> マウス操作 ＆ 左クリック<br>
+            🦑 <b>イカセンプク (潜る):</b> Shiftキー<br>
+            <small>※自分のインクに潜ると高速移動＆インク急速回復！<br>
+            ※敵のインクの上は移動速度が落ちます。</small>
+        </div>
+        <button id="start-btn">ゲームスタート</button>
+    </div>
+
+    <!-- リザルト画面 -->
+    <div id="game-over-screen" class="overlay hidden">
+        <h1 id="result-title">タイムアップ！</h1>
+        <div id="result-text">青 50.0% - ピンク 50.0%</div>
+        <button id="restart-btn">もう一度プレイ</button>
+    </div>
+</div>
+
+<script>
+    // --- ゲームの基本設定と定数 ---
+    const GAME_WIDTH = 800;
+    const GAME_HEIGHT = 600;
+    const GRID_SIZE = 10; // 塗りつぶし判定用のグリッドサイズ
+    const COLS = Math.floor(GAME_WIDTH / GRID_SIZE);
+    const ROWS = Math.floor(GAME_HEIGHT / GRID_SIZE);
+
+    const TEAM_NONE = 0;
+    const TEAM_BLUE = 1;
+    const TEAM_PINK = 2;
+
+    const COLOR_BLUE = '#00e5ff';
+    const COLOR_PINK = '#ff00e5';
+    const COLOR_FLOOR = '#e0e0e0';
+    const COLOR_WALL = '#555555';
+
+    // --- キャンバスとコンテキスト ---
+    const paintCanvas = document.getElementById('paint-canvas');
+    const paintCtx = paintCanvas.getContext('2d', { alpha: false }); // 背景を不透明に最適化
+    const mainCanvas = document.getElementById('main-canvas');
+    const mainCtx = mainCanvas.getContext('2d');
+
+    // UI要素
+    const uiLayer = document.getElementById('ui-layer');
+    const scoreBlueEl = document.getElementById('score-blue');
+    const scorePinkEl = document.getElementById('score-pink');
+    const timerBox = document.getElementById('timer-box');
+    const inkLevelEl = document.getElementById('ink-tank-level');
+    const inkWarningEl = document.getElementById('ink-warning');
+    const startScreen = document.getElementById('start-screen');
+    const gameOverScreen = document.getElementById('game-over-screen');
+    const resultText = document.getElementById('result-text');
+    const resultTitle = document.getElementById('result-title');
+
+    // --- ゲームステート ---
+    let gameState = 'start'; // 'start', 'playing', 'gameover'
+    let timeRemaining = 60;
+    let lastTime = 0;
+    let accumulator = 0;
+    const TIME_STEP = 1000 / 60; // 60 FPS
+
+    // 塗りつぶしグリッド (0: 塗られていない, 1: 青, 2: ピンク)
+    let paintGrid = new Uint8Array(COLS * ROWS);
+    let scoreCount = { [TEAM_BLUE]: 0, [TEAM_PINK]: 0 };
+
+    // --- 入力管理 ---
+    const keys = { w: false, a: false, s: false, d: false, shift: false };
+    const mouse = { x: GAME_WIDTH/2, y: GAME_HEIGHT/2, isDown: false };
+
+    window.addEventListener('keydown', (e) => {
+        const key = e.key.toLowerCase();
+        if (keys.hasOwnProperty(key)) keys[key] = true;
+        if (e.key === 'ArrowUp') keys.w = true;
+        if (e.key === 'ArrowLeft') keys.a = true;
+        if (e.key === 'ArrowDown') keys.s = true;
+        if (e.key === 'ArrowRight') keys.d = true;
+        if (e.key === 'Shift') keys.shift = true;
+    });
+
+    window.addEventListener('keyup', (e) => {
+        const key = e.key.toLowerCase();
+        if (keys.hasOwnProperty(key)) keys[key] = false;
+        if (e.key === 'ArrowUp') keys.w = false;
+        if (e.key === 'ArrowLeft') keys.a = false;
+        if (e.key === 'ArrowDown') keys.s = false;
+        if (e.key === 'ArrowRight') keys.d = false;
+        if (e.key === 'Shift') keys.shift = false;
+    });
+
+    mainCanvas.addEventListener('mousemove', (e) => {
+        const rect = mainCanvas.getBoundingClientRect();
+        mouse.x = e.clientX - rect.left;
+        mouse.y = e.clientY - rect.top;
+    });
+
+    mainCanvas.addEventListener('mousedown', (e) => { if(e.button === 0) mouse.isDown = true; });
+    window.addEventListener('mouseup', (e) => { if(e.button === 0) mouse.isDown = false; });
+    mainCanvas.addEventListener('contextmenu', e => e.preventDefault());
+
+    // --- 障害物 (壁) ---
+    const walls = [
+        { x: 150, y: 150, w: 100, h: 50 },
+        { x: 550, y: 150, w: 100, h: 50 },
+        { x: 150, y: 400, w: 100, h: 50 },
+        { x: 550, y: 400, w: 100, h: 50 },
+        { x: 350, y: 250, w: 100, h: 100 } // 中央の大きな壁
+    ];
+
+    // 円と矩形の衝突判定
+    function circleRectCollide(cx, cy, cr, rx, ry, rw, rh) {
+        let testX = cx;
+        let testY = cy;
+        if (cx < rx) testX = rx;
+        else if (cx > rx + rw) testX = rx + rw;
+        if (cy < ry) testY = ry;
+        else if (cy > ry + rh) testY = ry + rh;
+        let distX = cx - testX;
+        let distY = cy - testY;
+        return (distX * distX + distY * distY) <= (cr * cr);
+    }
+
+    // --- ゲームオブジェクト ---
+    let projectiles = [];
+    let particles = [];
+    let enemies = [];
+
+    // プレイヤーオブジェクト
+    const player = {
+        x: 100, y: 300,
+        radius: 14,
+        team: TEAM_BLUE,
+        color: COLOR_BLUE,
+        ink: 100,
+        maxInk: 100,
+        isDiving: false,
+        shootCooldown: 0,
+        angle: 0,
+
+        update: function() {
+            // 現在の足元のチームインクを取得
+            const gridX = Math.floor(this.x / GRID_SIZE);
+            const gridY = Math.floor(this.y / GRID_SIZE);
+            let currentFloorTeam = TEAM_NONE;
+            if (gridX >= 0 && gridX < COLS && gridY >= 0 && gridY < ROWS) {
+                currentFloorTeam = paintGrid[gridY * COLS + gridX];
+            }
+
+            // 潜伏判定（Shiftキー＆自陣インクの上）
+            this.isDiving = keys.shift && currentFloorTeam === this.team;
+
+            // 移動速度の計算
+            let speed = 3;
+            if (this.isDiving) {
+                speed = 5; // 潜伏中は速い
+            } else if (currentFloorTeam !== TEAM_NONE && currentFloorTeam !== this.team) {
+                speed = 1.2; // 敵インクの上は遅い
+            }
+
+            // 移動ベクトル
+            let dx = 0; let dy = 0;
+            if (keys.w) dy -= 1;
+            if (keys.s) dy += 1;
+            if (keys.a) dx -= 1;
+            if (keys.d) dx += 1;
+
+            if (dx !== 0 && dy !== 0) {
+                const length = Math.sqrt(dx * dx + dy * dy);
+                dx /= length; dy /= length;
+            }
+
+            // 移動と壁判定のシミュレーション
+            let nextX = this.x + dx * speed;
+            let nextY = this.y + dy * speed;
+
+            // 画面外判定
+            nextX = Math.max(this.radius, Math.min(GAME_WIDTH - this.radius, nextX));
+            nextY = Math.max(this.radius, Math.min(GAME_HEIGHT - this.radius, nextY));
+
+            // 壁との衝突判定 (X軸, Y軸独立して判定し滑らせる)
+            let collideX = false;
+            let collideY = false;
+
+            for (let w of walls) {
+                if (circleRectCollide(nextX, this.y, this.radius, w.x, w.y, w.w, w.h)) collideX = true;
+                if (circleRectCollide(this.x, nextY, this.radius, w.x, w.y, w.w, w.h)) collideY = true;
+            }
+
+            if (!collideX) this.x = nextX;
+            if (!collideY) this.y = nextY;
+
+            // マウスの方向を向く
+            this.angle = Math.atan2(mouse.y - this.y, mouse.x - this.x);
+
+            // インクの回復と消費
+            if (this.isDiving) {
+                this.ink = Math.min(this.maxInk, this.ink + 1.5); // 潜伏中は高速回復
+            } else {
+                this.ink = Math.min(this.maxInk, this.ink + 0.1); // 通常時は微回復
+            }
+
+            // 射撃 (潜伏中でなく、マウスが押されていて、クールダウンが終わっている場合)
+            if (this.shootCooldown > 0) this.shootCooldown--;
+            
+            if (mouse.isDown && !this.isDiving && this.shootCooldown <= 0) {
+                if (this.ink >= 2) {
+                    this.ink -= 2;
+                    shootInk(this.x, this.y, this.angle, this.team, this.color);
+                    this.shootCooldown = 6; // 連射速度
+                    inkWarningEl.style.display = 'none';
+                } else {
+                    inkWarningEl.style.display = 'block';
+                }
+            } else {
+                if(this.ink > 10) inkWarningEl.style.display = 'none';
+            }
+
+            // UI更新
+            inkLevelEl.style.height = `${(this.ink / this.maxInk) * 100}%`;
+        },
+
+        draw: function(ctx) {
+            ctx.save();
+            ctx.translate(this.x, this.y);
+            ctx.rotate(this.angle);
+
+            if (this.isDiving) {
+                // 潜伏中（イカ状態っぽい形）
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.moveTo(10, 0);
+                ctx.lineTo(-8, -8);
+                ctx.lineTo(-4, 0);
+                ctx.lineTo(-8, 8);
+                ctx.closePath();
+                ctx.fill();
+                
+                // インクの波紋エフェクト
+                ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(0, 0, this.radius * 1.2, 0, Math.PI * 2);
+                ctx.stroke();
+            } else {
+                // 通常時（ヒト状態）
+                // 武器（シューター）
+                ctx.fillStyle = '#333';
+                ctx.fillRect(0, -4, 20, 8);
+                ctx.fillStyle = this.color;
+                ctx.fillRect(15, -3, 8, 6);
+
+                // 体
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
+                ctx.fill();
+
+                // 縁取り
+                ctx.strokeStyle = '#000';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+
+                // 目 (向いている方向を示す)
+                ctx.fillStyle = '#fff';
+                ctx.beginPath(); ctx.arc(4, -5, 4, 0, Math.PI*2); ctx.fill();
+                ctx.beginPath(); ctx.arc(4, 5, 4, 0, Math.PI*2); ctx.fill();
+                ctx.fillStyle = '#000';
+                ctx.beginPath(); ctx.arc(6, -5, 2, 0, Math.PI*2); ctx.fill();
+                ctx.beginPath(); ctx.arc(6, 5, 2, 0, Math.PI*2); ctx.fill();
+            }
+
+            ctx.restore();
+        }
+    };
+
+    // 敵(CPU)クラス
+    class Enemy {
+        constructor(x, y) {
+            this.x = x;
+            this.y = y;
+            this.radius = 14;
+            this.team = TEAM_PINK;
+            this.color = COLOR_PINK;
+            this.angle = Math.random() * Math.PI * 2;
+            this.state = 'wander'; // wander, shoot, pursue
+            this.stateTimer = 0;
+            this.shootCooldown = 0;
+            this.targetX = x;
+            this.targetY = y;
+            this.isDiving = false;
+        }
+
+        update() {
+            this.stateTimer--;
+
+            // AIの思考切り替え
+            if (this.stateTimer <= 0) {
+                const rand = Math.random();
+                if (rand < 0.4) {
+                    this.state = 'wander';
+                    this.stateTimer = 60 + Math.random() * 60;
+                    // 適当な方向へ
+                    this.targetX = this.x + (Math.random() - 0.5) * 300;
+                    this.targetY = this.y + (Math.random() - 0.5) * 300;
+                } else if (rand < 0.8) {
+                    this.state = 'shoot';
+                    this.stateTimer = 40 + Math.random() * 40;
+                    // プレイヤーの方向を向く
+                    this.targetX = player.x;
+                    this.targetY = player.y;
+                } else {
+                    this.state = 'pursue';
+                    this.stateTimer = 60 + Math.random() * 60;
+                }
+            }
+
+            // 現在の足元のチームインクを取得
+            const gridX = Math.floor(this.x / GRID_SIZE);
+            const gridY = Math.floor(this.y / GRID_SIZE);
+            let currentFloorTeam = TEAM_NONE;
+            if (gridX >= 0 && gridX < COLS && gridY >= 0 && gridY < ROWS) {
+                currentFloorTeam = paintGrid[gridY * COLS + gridX];
+            }
+
+            // 敵も自陣インクならたまに潜る
+            if (this.state === 'pursue' && currentFloorTeam === this.team) {
+                this.isDiving = true;
+            } else {
+                this.isDiving = false;
+            }
+
+            let speed = this.isDiving ? 4 : (currentFloorTeam !== TEAM_NONE && currentFloorTeam !== this.team) ? 1.2 : 2;
+
+            // 移動処理
+            let dx = 0, dy = 0;
+            if (this.state === 'wander' || this.state === 'pursue') {
+                let tx = (this.state === 'pursue') ? player.x : this.targetX;
+                let ty = (this.state === 'pursue') ? player.y : this.targetY;
+                
+                dx = tx - this.x;
+                dy = ty - this.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                
+                if (dist > 5) {
+                    dx = (dx / dist) * speed;
+                    dy = (dy / dist) * speed;
+                    this.angle = Math.atan2(dy, dx);
+                } else {
+                    dx = 0; dy = 0;
+                }
+            } else if (this.state === 'shoot') {
+                // 撃つときはプレイヤーの方を向く
+                this.angle = Math.atan2(player.y - this.y, player.x - this.x);
+            }
+
+            // 衝突判定と移動適用
+            let nextX = this.x + dx;
+            let nextY = this.y + dy;
+            
+            // 画面境界
+            if (nextX < this.radius || nextX > GAME_WIDTH - this.radius) dx = -dx;
+            if (nextY < this.radius || nextY > GAME_HEIGHT - this.radius) dy = -dy;
+            
+            nextX = Math.max(this.radius, Math.min(GAME_WIDTH - this.radius, this.x + dx));
+            nextY = Math.max(this.radius, Math.min(GAME_HEIGHT - this.radius, this.y + dy));
+
+            // 壁判定
+            let collideX = false; let collideY = false;
+            for (let w of walls) {
+                if (circleRectCollide(nextX, this.y, this.radius, w.x, w.y, w.w, w.h)) collideX = true;
+                if (circleRectCollide(this.x, nextY, this.radius, w.x, w.y, w.w, w.h)) collideY = true;
+            }
+            if (!collideX) this.x = nextX;
+            if (!collideY) this.y = nextY;
+
+            // 射撃処理
+            if (this.shootCooldown > 0) this.shootCooldown--;
+            if (this.state === 'shoot' && !this.isDiving && this.shootCooldown <= 0) {
+                // 少しばらつきを持たせて撃つ
+                let shootAngle = this.angle + (Math.random() - 0.5) * 0.5;
+                shootInk(this.x, this.y, shootAngle, this.team, this.color);
+                this.shootCooldown = 15; // プレイヤーより少し遅い
+            }
+        }
+
+        draw(ctx) {
+            ctx.save();
+            ctx.translate(this.x, this.y);
+            ctx.rotate(this.angle);
+
+            if (this.isDiving) {
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.moveTo(10, 0); ctx.lineTo(-8, -8); ctx.lineTo(-4, 0); ctx.lineTo(-8, 8);
+                ctx.closePath(); ctx.fill();
+            } else {
+                // 武器
+                ctx.fillStyle = '#333';
+                ctx.fillRect(0, -4, 20, 8);
+                ctx.fillStyle = this.color;
+                ctx.fillRect(15, -3, 8, 6);
+
+                // 体
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.strokeStyle = '#000';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+
+                // 目（ゴーグル風）
+                ctx.fillStyle = '#222';
+                ctx.fillRect(0, -8, 10, 16);
+                ctx.fillStyle = '#0ff'; // 敵の目は光らせる
+                ctx.beginPath(); ctx.arc(5, -4, 2, 0, Math.PI*2); ctx.fill();
+                ctx.beginPath(); ctx.arc(5, 4, 2, 0, Math.PI*2); ctx.fill();
+            }
+            ctx.restore();
+        }
+    }
+
+    // --- インクとペイント処理 ---
+    function shootInk(x, y, angle, team, color) {
+        // メインのインク弾
+        const speed = 12 + Math.random() * 3;
+        projectiles.push({
+            x: x + Math.cos(angle) * 20,
+            y: y + Math.sin(angle) * 20,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            team: team,
+            color: color,
+            life: 15 + Math.random() * 10, // 飛距離にばらつき
+            radius: 6
+        });
+
+        // 散る小さなインク
+        for(let i=0; i<2; i++) {
+            let spreadAngle = angle + (Math.random() - 0.5) * 0.8;
+            let spSpeed = speed * (0.5 + Math.random() * 0.4);
+            projectiles.push({
+                x: x + Math.cos(spreadAngle) * 15,
+                y: y + Math.sin(spreadAngle) * 15,
+                vx: Math.cos(spreadAngle) * spSpeed,
+                vy: Math.sin(spreadAngle) * spSpeed,
+                team: team,
+                color: color,
+                life: 10 + Math.random() * 10,
+                radius: 3
+            });
+        }
+    }
+
+    // 床を塗る処理
+    function splat(cx, cy, radius, team, color) {
+        // 1. ペイントキャンバスに描画 (見た目用)
+        paintCtx.fillStyle = color;
+        paintCtx.beginPath();
+        paintCtx.arc(cx, cy, radius, 0, Math.PI * 2);
+        paintCtx.fill();
+
+        // 飛び散りエフェクト（見た目のみ）
+        for(let i=0; i<3; i++){
+            let sx = cx + (Math.random()-0.5) * radius * 1.5;
+            let sy = cy + (Math.random()-0.5) * radius * 1.5;
+            let sr = radius * (0.2 + Math.random()*0.5);
+            paintCtx.beginPath();
+            paintCtx.arc(sx, sy, sr, 0, Math.PI * 2);
+            paintCtx.fill();
+        }
+
+        // 2. グリッドデータの更新 (スコア判定用)
+        // 円が覆うバウンディングボックスのグリッドを調べる
+        let startCol = Math.max(0, Math.floor((cx - radius) / GRID_SIZE));
+        let endCol = Math.min(COLS - 1, Math.floor((cx + radius) / GRID_SIZE));
+        let startRow = Math.max(0, Math.floor((cy - radius) / GRID_SIZE));
+        let endRow = Math.min(ROWS - 1, Math.floor((cy + radius) / GRID_SIZE));
+
+        const radiusSq = radius * radius;
+
+        for (let r = startRow; r <= endRow; r++) {
+            for (let c = startCol; c <= endCol; c++) {
+                // セルの中心座標
+                let cellX = c * GRID_SIZE + GRID_SIZE / 2;
+                let cellY = r * GRID_SIZE + GRID_SIZE / 2;
+                
+                // 円の中に入っているか
+                let dx = cellX - cx;
+                let dy = cellY - cy;
+                if ((dx * dx + dy * dy) <= radiusSq) {
+                    let idx = r * COLS + c;
+                    let oldTeam = paintGrid[idx];
+                    
+                    if (oldTeam !== team) {
+                        // スコアの更新
+                        if (oldTeam !== TEAM_NONE) {
+                            scoreCount[oldTeam]--;
+                        }
+                        paintGrid[idx] = team;
+                        scoreCount[team]++;
+                    }
+                }
+            }
+        }
+
+        // 3. パーティクル生成
+        for (let i = 0; i < 4; i++) {
+            particles.push({
+                x: cx, y: cy,
+                vx: (Math.random() - 0.5) * 4,
+                vy: (Math.random() - 0.5) * 4,
+                radius: Math.random() * 3 + 1,
+                color: color,
+                life: 1.0 // 1.0から0へ減衰
+            });
+        }
+    }
+
+    // --- メインループと更新 ---
+    function update(dt) {
+        if (gameState !== 'playing') return;
+
+        // タイマー更新
+        timeRemaining -= dt / 1000;
+        if (timeRemaining <= 0) {
+            endGame();
+            return;
+        }
+
+        player.update();
+        enemies.forEach(e => e.update());
+
+        // プロジェクタイル (インク弾) の更新
+        for (let i = projectiles.length - 1; i >= 0; i--) {
+            let p = projectiles[i];
+            p.x += p.vx;
+            p.y += p.vy;
+            p.life--;
+
+            // 重力的な減衰
+            p.vx *= 0.95;
+            p.vy *= 0.95;
+
+            // 壁との衝突
+            let hitWall = false;
+            for (let w of walls) {
+                if (p.x > w.x && p.x < w.x + w.w && p.y > w.y && p.y < w.y + w.h) {
+                    hitWall = true;
+                    break;
+                }
+            }
+
+            if (p.life <= 0 || hitWall || p.x < 0 || p.x > GAME_WIDTH || p.y < 0 || p.y > GAME_HEIGHT) {
+                // 着弾して塗る
+                splat(p.x, p.y, p.radius * 2.5, p.team, p.color);
+                projectiles.splice(i, 1);
+            }
+        }
+
+        // パーティクルの更新
+        for (let i = particles.length - 1; i >= 0; i--) {
+            let p = particles[i];
+            p.x += p.vx;
+            p.y += p.vy;
+            p.life -= 0.05;
+            if (p.life <= 0) {
+                particles.splice(i, 1);
+            }
+        }
+
+        updateUI();
+    }
+
+    function draw() {
+        // メインキャンバスをクリア
+        mainCtx.clearRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+
+        // 1. ペイントキャンバス(床)を描画
+        mainCtx.drawImage(paintCanvas, 0, 0);
+
+        // 2. 壁を描画
+        mainCtx.fillStyle = COLOR_WALL;
+        for (let w of walls) {
+            mainCtx.fillRect(w.x, w.y, w.w, w.h);
+            // 壁の立体感
+            mainCtx.fillStyle = '#444';
+            mainCtx.fillRect(w.x, w.y + w.h - 5, w.w, 5);
+            mainCtx.fillStyle = COLOR_WALL;
+        }
+
+        // 3. パーティクル
+        for (let p of particles) {
+            mainCtx.globalAlpha = p.life;
+            mainCtx.fillStyle = p.color;
+            mainCtx.beginPath();
+            mainCtx.arc(p.x, p.y, p.radius, 0, Math.PI*2);
+            mainCtx.fill();
+        }
+        mainCtx.globalAlpha = 1.0;
+
+        // 4. プロジェクタイル
+        for (let p of projectiles) {
+            mainCtx.fillStyle = p.color;
+            mainCtx.beginPath();
+            mainCtx.arc(p.x, p.y, p.radius, 0, Math.PI*2);
+            mainCtx.fill();
+        }
+
+        // 5. キャラクター (潜伏中のものを先に描く)
+        if (player.isDiving) player.draw(mainCtx);
+        enemies.forEach(e => { if(e.isDiving) e.draw(mainCtx); });
+        
+        if (!player.isDiving) player.draw(mainCtx);
+        enemies.forEach(e => { if(!e.isDiving) e.draw(mainCtx); });
+
+        // 照準カーソル
+        if (gameState === 'playing') {
+            mainCtx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+            mainCtx.lineWidth = 2;
+            mainCtx.beginPath();
+            mainCtx.arc(mouse.x, mouse.y, 10, 0, Math.PI*2);
+            mainCtx.moveTo(mouse.x - 15, mouse.y); mainCtx.lineTo(mouse.x + 15, mouse.y);
+            mainCtx.moveTo(mouse.x, mouse.y - 15); mainCtx.lineTo(mouse.x, mouse.y + 15);
+            mainCtx.stroke();
+        }
+    }
+
+    function updateUI() {
+        // タイマー
+        timerBox.innerText = Math.ceil(timeRemaining);
+        if (timeRemaining <= 10) {
+            timerBox.style.color = '#ff5555';
+        } else {
+            timerBox.style.color = '#fff';
+        }
+
+        // スコア（ゲージ）
+        const totalPainted = scoreCount[TEAM_BLUE] + scoreCount[TEAM_PINK];
+        if (totalPainted > 0) {
+            const bluePct = (scoreCount[TEAM_BLUE] / totalPainted) * 100;
+            const pinkPct = (scoreCount[TEAM_PINK] / totalPainted) * 100;
+            scoreBlueEl.style.width = `${bluePct}%`;
+            scorePinkEl.style.width = `${pinkPct}%`;
+        } else {
+            scoreBlueEl.style.width = '50%';
+            scorePinkEl.style.width = '50%';
+        }
+    }
+
+    // --- ゲームサイクルの管理 ---
+    function initGame() {
+        // ペイントキャンバスの初期化 (全面床色)
+        paintCtx.fillStyle = COLOR_FLOOR;
+        paintCtx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+
+        // グリッドとスコアのリセット
+        paintGrid.fill(TEAM_NONE);
+        scoreCount[TEAM_BLUE] = 0;
+        scoreCount[TEAM_PINK] = 0;
+
+        // 壁の下は塗れないものとして初期グリッドから除外するか、単に描画で覆う
+        // 今回は描画で覆う＆弾が壁で消える仕様なのでそのままでOK
+
+        // オブジェクトリセット
+        projectiles = [];
+        particles = [];
+        
+        player.x = 100;
+        player.y = GAME_HEIGHT / 2;
+        player.ink = player.maxInk;
+        
+        enemies = [
+            new Enemy(700, 100),
+            new Enemy(700, GAME_HEIGHT / 2),
+            new Enemy(700, 500)
+        ];
+
+        timeRemaining = 60;
+        updateUI();
+        
+        gameState = 'playing';
+        startScreen.classList.add('hidden');
+        gameOverScreen.classList.add('hidden');
+        uiLayer.classList.remove('hidden');
+        
+        lastTime = performance.now();
+        requestAnimationFrame(gameLoop);
+    }
+
+    function endGame() {
+        gameState = 'gameover';
+        uiLayer.classList.add('hidden');
+        gameOverScreen.classList.remove('hidden');
+
+        // 勝敗判定 (全グリッド面積に対する割合)
+        const totalArea = COLS * ROWS;
+        const bluePct = ((scoreCount[TEAM_BLUE] / totalArea) * 100).toFixed(1);
+        const pinkPct = ((scoreCount[TEAM_PINK] / totalArea) * 100).toFixed(1);
+
+        resultText.innerText = `青 ${bluePct}%  -  ピンク ${pinkPct}%`;
+        
+        if (parseFloat(bluePct) > parseFloat(pinkPct)) {
+            resultTitle.innerText = "青チームの勝利！";
+            resultTitle.style.color = COLOR_BLUE;
+            resultTitle.style.textShadow = "0 0 10px #00e5ff, 3px 3px 0 #000";
+        } else if (parseFloat(pinkPct) > parseFloat(bluePct)) {
+            resultTitle.innerText = "ピンクチームの勝利！";
+            resultTitle.style.color = COLOR_PINK;
+            resultTitle.style.textShadow = "0 0 10px #ff00e5, 3px 3px 0 #000";
+        } else {
+            resultTitle.innerText = "引き分け！";
+            resultTitle.style.color = "#fff";
+            resultTitle.style.textShadow = "2px 2px 0 #000";
+        }
+    }
+
+    function gameLoop(currentTime) {
+        if (gameState !== 'playing') return;
+
+        let deltaTime = currentTime - lastTime;
+        lastTime = currentTime;
+
+        // タブが裏に回った際などの巨大なdeltaTimeを防ぐ
+        if (deltaTime > 100) deltaTime = 100;
+
+        accumulator += deltaTime;
+
+        // 固定タイムステップでロジックを更新
+        while (accumulator >= TIME_STEP) {
+            update(TIME_STEP);
+            accumulator -= TIME_STEP;
+        }
+
+        draw();
+
+        requestAnimationFrame(gameLoop);
+    }
+
+    // --- ボタンイベント ---
+    document.getElementById('start-btn').addEventListener('click', initGame);
+    document.getElementById('restart-btn').addEventListener('click', initGame);
+
+    // 初期描画
+    paintCtx.fillStyle = COLOR_FLOOR;
+    paintCtx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+    draw();
+
+</script>
+</body>
+</html>
